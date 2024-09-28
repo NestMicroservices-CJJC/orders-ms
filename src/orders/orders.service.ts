@@ -1,12 +1,18 @@
-import { HttpStatus, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PrismaClient } from '@prisma/client';
-import { RpcException } from '@nestjs/microservices';
+import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { OrderPaginationDto } from './dto';
 import { ChangeOrderStatusDto } from './dto/change-order-status.dto';
+import { PRODUCT_SERVICE } from 'src/config';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class OrdersService extends PrismaClient implements OnModuleInit {
+  constructor(@Inject(PRODUCT_SERVICE) private readonly productsClient: ClientProxy) {
+    super();
+  }
+
   private readonly logger = new Logger('OrdersService');
 
   async onModuleInit() {
@@ -16,12 +22,49 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
 
   async create(createOrderDto: CreateOrderDto) {
     try {
-      const newOrder = await this.order.create({ data: createOrderDto });
-      return newOrder;
+      const productIds = createOrderDto.items.map((item) => item.productId);
+      const products: any[] = await firstValueFrom(this.productsClient.send({ cmd: 'validate_products' }, productIds));
+      const totalAmount = createOrderDto.items.reduce((acc, orderItem) => {
+        const price = products.find((product) => product.id === orderItem.productId).price;
+        return price * orderItem.quantity + acc;
+      }, 0);
+      const totalItems = createOrderDto.items.reduce((acc, orderItem) => {
+        return acc + orderItem.quantity;
+      }, 0);
+      const order = await this.order.create({
+        data: {
+          totalAmount: totalAmount,
+          totalItems: totalItems,
+          OrderItem: {
+            createMany: {
+              data: createOrderDto.items.map((orderItem) => ({
+                price: products.find((prod) => prod.id === orderItem.productId).price,
+                productId: orderItem.productId,
+                quantity: orderItem.quantity,
+              })),
+            },
+          },
+        },
+        include: {
+          OrderItem: {
+            select: {
+              price: true,
+              quantity: true,
+              productId: true,
+            },
+          },
+        },
+      });
+      return {
+        ...order,
+        OrderItem: order.OrderItem.map((orderItem) => ({
+          ...orderItem,
+          name: products.find((prod) => prod.id === orderItem.productId).name,
+        })),
+      };
     } catch (error) {
       throw new RpcException({
-        message: `Can't save Record`,
-        error,
+        message: 'Check Logs',
         status: HttpStatus.BAD_REQUEST,
       });
     }
@@ -56,7 +99,18 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
   }
 
   async findOne(id: string) {
-    const order = await this.order.findFirst({ where: { id } });
+    const order = await this.order.findFirst({
+      where: { id },
+      include: {
+        OrderItem: {
+          select: {
+            price: true,
+            quantity: true,
+            productId: true,
+          },
+        },
+      },
+    });
     if (!order) {
       // throw new NotFoundException(`Order with id: ${id} Not Found!`);
       throw new RpcException({
@@ -64,7 +118,15 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
         status: HttpStatus.NOT_FOUND,
       });
     }
-    return order;
+    const productIds = order.OrderItem.map((orderItem) => orderItem.productId);
+    const products: any[] = await firstValueFrom(this.productsClient.send({ cmd: 'validate_products' }, productIds));
+    return {
+      ...order,
+      OrderItem: order.OrderItem.map((orderItem) => ({
+        ...orderItem,
+        name: products.find((prod) => prod.id === orderItem.productId).name,
+      })),
+    };
   }
 
   async changeOrderStatus(changeOrderStatusDto: ChangeOrderStatusDto) {
