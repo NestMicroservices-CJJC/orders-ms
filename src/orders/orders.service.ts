@@ -15,15 +15,23 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
   }
 
   async create(createOrderDto: CreateOrderDto) {
-    const newOrder = await this.orders.create({ data: createOrderDto });
-    return newOrder;
+    try {
+      const newOrder = await this.order.create({ data: createOrderDto });
+      return newOrder;
+    } catch (error) {
+      throw new RpcException({
+        message: `Can't save Record`,
+        error,
+        status: HttpStatus.BAD_REQUEST,
+      });
+    }
   }
 
   async findAll(orderPaginationDto: OrderPaginationDto) {
     const { page, limit, status } = orderPaginationDto;
-    const totalRegs = await this.orders.count({});
+    const totalRegs = await this.order.count({});
     const totalPages = Math.ceil(totalRegs / limit);
-    const orders = await this.orders.findMany({
+    const orders = await this.order.findMany({
       skip: (page - 1) * limit,
       take: limit,
       where: {
@@ -48,7 +56,7 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
   }
 
   async findOne(id: string) {
-    const order = await this.orders.findFirst({ where: { id } });
+    const order = await this.order.findFirst({ where: { id } });
     if (!order) {
       // throw new NotFoundException(`Order with id: ${id} Not Found!`);
       throw new RpcException({
@@ -65,6 +73,6 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
     if (order.status === status) {
       return order;
     }
-    return this.orders.update({ where: { id }, data: { status } });
+    return this.order.update({ where: { id }, data: { status } });
   }
 }
