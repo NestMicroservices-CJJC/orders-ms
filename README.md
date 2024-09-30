@@ -21,7 +21,19 @@ docker compose up -d
 npx prisma migrate dev
 ```
 
-6. Ejecutar el proyecto
+6. Si no está ejecutandose, Levanatar el servidor de Nats
+
+```
+docker run -d --name nats-main -p 4222:4222 -p 6222:6222 -p 8222:8222 nats
+```
+
+7. Verificar servidor corriendo:
+
+```
+http://localhost:8222/
+```
+
+8. Ejecutar el proyecto
 
 ```
 npm run start:dev
