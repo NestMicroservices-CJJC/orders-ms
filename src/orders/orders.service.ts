@@ -9,7 +9,7 @@ import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class OrdersService extends PrismaClient implements OnModuleInit {
-  constructor(@Inject(NATS_SERVICE) private readonly productsClient: ClientProxy) {
+  constructor(@Inject(NATS_SERVICE) private readonly client: ClientProxy) {
     super();
   }
 
@@ -23,7 +23,8 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
   async create(createOrderDto: CreateOrderDto) {
     try {
       const productIds = createOrderDto.items.map((item) => item.productId);
-      const products: any[] = await firstValueFrom(this.productsClient.send({ cmd: 'validate_products' }, productIds));
+      // const products: any[] = await firstValueFrom(this.client.send({ cmd: 'validate_products' }, productIds));
+      const products: any[] = await firstValueFrom(this.client.send({ cmd: 'validate_products' }, productIds));
       const totalAmount = createOrderDto.items.reduce((acc, orderItem) => {
         const price = products.find((product) => product.id === orderItem.productId).price;
         return price * orderItem.quantity + acc;
@@ -64,7 +65,7 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
       };
     } catch (error) {
       throw new RpcException({
-        message: 'Check Logs',
+        message: { errorCJJC: error },
         status: HttpStatus.BAD_REQUEST,
       });
     }
@@ -112,14 +113,13 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
       },
     });
     if (!order) {
-      // throw new NotFoundException(`Order with id: ${id} Not Found!`);
       throw new RpcException({
         message: `Order with id: ${id} Not Found`,
         status: HttpStatus.NOT_FOUND,
       });
     }
     const productIds = order.OrderItem.map((orderItem) => orderItem.productId);
-    const products: any[] = await firstValueFrom(this.productsClient.send({ cmd: 'validate_products' }, productIds));
+    const products: any[] = await firstValueFrom(this.client.send({ cmd: 'validate_products' }, productIds));
     return {
       ...order,
       OrderItem: order.OrderItem.map((orderItem) => ({
